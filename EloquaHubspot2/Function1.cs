@@ -1,30 +1,51 @@
 
 using System.IO;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.WebJobs.Host;
 using Newtonsoft.Json;
 
 namespace EloquaHubspot2
 {
-    public static class Function1
+    public static class Eloqua2Hubspot
     {
-        [FunctionName("Function1")]
-        public static IActionResult Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)]HttpRequest req, TraceWriter log)
+        private static readonly HttpClient httpClient = new HttpClient();
+
+        [FunctionName("EloquaToHubspot")]
+        public static async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)]HttpRequest req, TraceWriter log)
         {
             log.Info("C# HTTP trigger function processed a request.");
+                    
+            if (!req.HasFormContentType)
+                return new BadRequestObjectResult("Must pass a form type");
 
-            string name = req.Query["name"];
+            string email = req.Form["Email"];
+            log.Info("Form contains Email=" + email);
 
-            string requestBody = new StreamReader(req.Body).ReadToEnd();
-            dynamic data = JsonConvert.DeserializeObject(requestBody);
-            name = name ?? data?.name;
+            if (email == null)
+                return new BadRequestObjectResult("Please pass an Email form field in the request body");
 
-            return name != null
-                ? (ActionResult)new OkObjectResult($"Hello, {name}")
-                : new BadRequestObjectResult("Please pass a name on the query string or in the request body");
+            bool success = await SendToHubspot(email);
+            if (!success)
+                return new BadRequestObjectResult("Bad response from Hubspot");
+
+            return new OkObjectResult("");
+        }
+
+        public static async Task<bool> SendToHubspot(string email)
+        {
+            Dictionary<string, bool> dictionary = new Dictionary<string, bool>
+            {
+                { "unsubscribeFromAll", true }
+            };
+            HttpResponseMessage response = await httpClient.PutAsJsonAsync(string.Format("https://api.hubapi.com/email/public/v1/subscriptions/" + email + "?hapikey=demo"), dictionary);
+            return response.IsSuccessStatusCode;
         }
     }
 }
